@@ -114,6 +114,10 @@ def run_hover_validation(verbose: bool = True) -> list[dict]:
     return rows
 
 
+# Alias for app.py compatibility
+run_validation = run_hover_validation
+
+
 # --------------------------------------------------------------------- forward
 
 def run_forward_validation(verbose: bool = True) -> list[dict]:
