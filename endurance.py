@@ -86,6 +86,30 @@ def battery_specific_energy(
     return (capacity_Ah * nominal_voltage_V) / pack_mass_kg
 
 
+def battery_usable_Wh_with_sag(
+    capacity_Ah: float,
+    nominal_voltage_V: float,
+    usable_fraction: float = 0.90,
+    discharge_efficiency: float = 0.96,
+    voltage_sag: float = 0.0,
+    P_load_W: float = 0.0,
+) -> float:
+    """Usable energy with optional voltage-sag derating (v5).
+
+    When voltage_sag = 0 (default), identical to battery_usable_Wh().
+    Linear sag approximation: V_eff = V_nom * (1 - sag * load_fraction)
+    where load_fraction = P_load / P_peak_2C.
+    Ref: Plett, 'Battery Management Systems Vol II'.
+    """
+    nameplate_Wh = capacity_Ah * nominal_voltage_V
+    if voltage_sag <= 0 or P_load_W <= 0:
+        return nameplate_Wh * usable_fraction * discharge_efficiency
+    P_peak_2C = 2.0 * capacity_Ah * nominal_voltage_V
+    load_fraction = min(P_load_W / P_peak_2C, 1.0)
+    sag_factor = 1.0 - voltage_sag * load_fraction
+    return nameplate_Wh * sag_factor * usable_fraction * discharge_efficiency
+
+
 # --- Hover power ----------------------------------------------------------
 
 def hover_power_momentum_theory(
@@ -97,14 +121,16 @@ def hover_power_momentum_theory(
     profile_power_W: float = 0.0,
     altitude_m: float = 0.0,
     temperature_offset_c: float = 0.0,
+    # v5 parameters
+    altitude_AGL_m: float = 10000.0,
+    cooling_power_W: float = 0.0,
 ) -> float:
     """Electrical hover power: induced (Glauert/FoM) + profile, divided by eta_drive.
 
-    Backward compatible: with profile_power_W=0 this matches v1 exactly, and
-    `figure_of_merit` plays the historical lumped-FoM role.
-
-    With profile_power_W > 0, `figure_of_merit` is interpreted as the
-    induced-power efficiency only (~0.85-0.95, i.e. 1/kappa).
+    v5 additions:
+    - altitude_AGL_m: Cheeseman-Bennett ground effect. Default 10000 m (OGE).
+      Ref: Cheeseman & Bennett 1955, Leishman sec 5.6.
+    - cooling_power_W: constant electrical draw from cooling systems.
     """
     rho = air_density(altitude_m, temperature_offset_c)
     thrust_N = mass_kg * G
@@ -113,6 +139,20 @@ def hover_power_momentum_theory(
     p_induced_ideal = thrust_N * math.sqrt(thrust_N / (2.0 * rho * disk_area_m2))
     p_shaft = p_induced_ideal / figure_of_merit + profile_power_W
     p_electrical = p_shaft / drivetrain_efficiency
+
+    # v5: Cheeseman-Bennett ground effect (reduces induced power near ground)
+    rotor_radius = rotor_diameter_m / 2.0
+    if 0 < altitude_AGL_m < 2.0 * rotor_radius:
+        z_over_R = altitude_AGL_m / rotor_radius
+        ge_factor = math.sqrt(1.0 - (rotor_radius / (4.0 * altitude_AGL_m)) ** 2)
+        # Only the induced component benefits; reconstruct
+        p_induced_electrical = (p_induced_ideal / figure_of_merit) / drivetrain_efficiency
+        p_profile_electrical = profile_power_W / drivetrain_efficiency
+        p_electrical = p_induced_electrical * ge_factor + p_profile_electrical
+
+    # v5: cooling parasitic load
+    p_electrical += cooling_power_W
+
     return p_electrical
 
 
@@ -124,13 +164,14 @@ def hover_power_disk_loading(
     profile_power_W: float = 0.0,
     altitude_m: float = 0.0,
     temperature_offset_c: float = 0.0,
+    cooling_power_W: float = 0.0,
 ) -> float:
     """Hover power using disk loading. Same model as the geometry version."""
     rho = air_density(altitude_m, temperature_offset_c)
     thrust_N = mass_kg * G
     p_induced_ideal = thrust_N * math.sqrt(disk_loading_Nm2 / (2.0 * rho))
     p_shaft = p_induced_ideal / figure_of_merit + profile_power_W
-    p_electrical = p_shaft / drivetrain_efficiency
+    p_electrical = p_shaft / drivetrain_efficiency + cooling_power_W
     return p_electrical
 
 
@@ -181,22 +222,27 @@ def forward_flight_power(
     oswald_e: float = 0.80,
     CL_max: float = 1.3,
     prop_efficiency: float = 0.85,
+    # v5 parameters
+    transition_width_mps: float = 0.0,
+    profile_K_mu: float = 0.0,
+    rotor_tip_speed_mps: float = 200.0,
+    cooling_power_W: float = 0.0,
 ) -> float:
     """Electrical forward-flight power at trimmed level flight.
 
-    If wing_area_m2 = 0, returns pure rotor-borne forward flight power
-    (Glauert + parasite drag from body, with profile drag from rotor blades).
-
-    If wing_area_m2 > 0, also computes wing-borne cruise power
-    (lift from wing, drag = parasite + induced; rotors are thrust propellers)
-    and returns the minimum of the two. Below stall, only the rotor model
-    is used because the wing physically cannot generate enough lift.
+    v5 additions:
+    - transition_width_mps: sigmoid blend width around V_stall (0 = hard min).
+    - profile_K_mu, rotor_tip_speed_mps: advance-ratio profile scaling.
+    - cooling_power_W: constant electrical draw from cooling systems.
     """
     p_rotor = rotor_borne_forward_power(
         mass_kg, airspeed_mps, n_rotors, rotor_diameter_m,
         Cd_body, frontal_area_m2,
         figure_of_merit, drivetrain_efficiency, profile_power_W,
         altitude_m, temperature_offset_c,
+        profile_K_mu=profile_K_mu,
+        rotor_tip_speed_mps=rotor_tip_speed_mps,
+        cooling_power_W=cooling_power_W,
     )
     if wing_area_m2 <= 0 or wing_span_m <= 0 or airspeed_mps <= 0:
         return p_rotor
@@ -207,7 +253,33 @@ def forward_flight_power(
         Cd0, oswald_e, CL_max, prop_efficiency,
         drivetrain_efficiency,
         altitude_m, temperature_offset_c,
+        cooling_power_W=cooling_power_W,
     )
+
+    # v5: sigmoid blend around V_stall instead of hard min()
+    if transition_width_mps > 0:
+        V_stall_val = stall_speed(mass_kg, wing_area_m2, CL_max,
+                                  altitude_m, temperature_offset_c)
+        alpha = 1.0 / (1.0 + math.exp(-(airspeed_mps - V_stall_val)
+                                        / transition_width_mps))
+        # If wing is stalled (p_wing=inf), compute an unclamped wing power
+        # for blending: drag polar is still valid, just CL > CL_max.
+        # The sigmoid ensures alpha ≈ 0 well below stall, so this
+        # unphysical region has negligible weight.
+        if math.isinf(p_wing):
+            rho = air_density(altitude_m, temperature_offset_c)
+            W = mass_kg * G
+            AR = wing_span_m ** 2 / wing_area_m2
+            q = 0.5 * rho * airspeed_mps ** 2
+            if q > 0:
+                CL_unclamped = W / (q * wing_area_m2)
+                CD = Cd0 + CL_unclamped ** 2 / (math.pi * AR * oswald_e)
+                D = q * wing_area_m2 * CD
+                p_wing = (D * airspeed_mps / prop_efficiency) / drivetrain_efficiency + cooling_power_W
+            else:
+                return p_rotor
+        return (1.0 - alpha) * p_rotor + alpha * p_wing
+
     return min(p_rotor, p_wing)
 
 
@@ -223,8 +295,17 @@ def rotor_borne_forward_power(
     profile_power_W: float = 0.0,
     altitude_m: float = 0.0,
     temperature_offset_c: float = 0.0,
+    # v5 parameters
+    profile_K_mu: float = 0.0,
+    rotor_tip_speed_mps: float = 200.0,
+    cooling_power_W: float = 0.0,
 ) -> float:
-    """Pure rotor-borne forward flight (v2 model, no wing)."""
+    """Pure rotor-borne forward flight (v2 model, no wing).
+
+    v5: profile power scales with advance ratio mu = V / V_tip:
+        P_profile(V) = P_profile_hover * (1 + K_mu * mu^2)
+    Ref: Leishman, Helicopter Aerodynamics 2nd ed, sec 5.4.
+    """
     rho = air_density(altitude_m, temperature_offset_c)
     W = mass_kg * G
     A = n_rotors * math.pi * (rotor_diameter_m / 2.0) ** 2
@@ -235,8 +316,16 @@ def rotor_borne_forward_power(
 
     vi = _glauert_induced_velocity(T, airspeed_mps, alpha, rho, A)
     p_induced_ideal = T * (airspeed_mps * math.sin(alpha) + vi)
-    p_shaft = p_induced_ideal / figure_of_merit + profile_power_W
-    p_electrical = p_shaft / drivetrain_efficiency
+
+    # v5: advance-ratio scaling of profile power
+    if profile_K_mu > 0 and rotor_tip_speed_mps > 0:
+        mu = airspeed_mps / rotor_tip_speed_mps
+        profile_effective = profile_power_W * (1.0 + profile_K_mu * mu ** 2)
+    else:
+        profile_effective = profile_power_W
+
+    p_shaft = p_induced_ideal / figure_of_merit + profile_effective
+    p_electrical = p_shaft / drivetrain_efficiency + cooling_power_W
     return p_electrical
 
 
@@ -252,19 +341,12 @@ def wing_borne_cruise_power(
     drivetrain_efficiency: float,
     altitude_m: float = 0.0,
     temperature_offset_c: float = 0.0,
+    cooling_power_W: float = 0.0,
 ) -> float:
     """Wing-borne cruise power for an eVTOL or fixed-wing aircraft.
 
-    Computes:
-        CL = W / (0.5 * rho * V^2 * S)        (required lift coefficient)
-        CD = Cd0 + CL^2 / (pi * AR * e)       (drag polar)
-        D  = 0.5 * rho * V^2 * S * CD         (total drag)
-        T  = D                                 (level cruise: thrust = drag)
-        P_shaft_thrust = T * V / eta_prop     (propeller thrust power)
-        P_electrical   = P_shaft / eta_drive
-
-    If the wing would need CL > CL_max, returns +inf (stalled, wing cannot
-    support the aircraft -- caller must use rotor-borne model instead).
+    If the wing would need CL > CL_max, returns +inf (stalled).
+    v5: cooling_power_W added on top of propulsion power.
     """
     rho = air_density(altitude_m, temperature_offset_c)
     W = mass_kg * G
@@ -280,7 +362,7 @@ def wing_borne_cruise_power(
     T = D  # level flight
 
     p_shaft = T * airspeed_mps / prop_efficiency
-    p_electrical = p_shaft / drivetrain_efficiency
+    p_electrical = p_shaft / drivetrain_efficiency + cooling_power_W
     return p_electrical
 
 
@@ -324,6 +406,12 @@ class Aircraft:
     CL_max: float = 1.3
     prop_efficiency: float = 0.85
     notes: str = ""
+    # v5: physics extensions (all defaults preserve v4 behavior)
+    transition_width_mps: float = 0.0       # A: sigmoid blend width (0 = hard min)
+    profile_K_mu: float = 0.0               # B: advance-ratio scaling (0 = constant)
+    rotor_tip_speed_mps: float = 200.0      # B: tip speed for mu calc
+    voltage_sag_at_full_load: float = 0.0   # C: fractional sag (0 = none)
+    cooling_power_W: float = 0.0            # E: constant cooling draw (0 = none)
 
     @property
     def nameplate_Wh(self) -> float:
@@ -353,6 +441,24 @@ class Aircraft:
             return float("nan")
         return (self.mass_kg * G) / self.wing_area_m2
 
+    def vrs_descent_boundary_mps(
+        self,
+        altitude_m: float = 0.0,
+        temperature_offset_c: float = 0.0,
+    ) -> float:
+        """Descent speed above which vortex ring state (VRS) is a concern.
+
+        Standard boundary: V_descent > 0.5 * v_induced_hover.
+        Ref: Leishman, Helicopter Aerodynamics 2nd ed, sec 2.13.4.
+        Note: the endurance model assumes level flight, so VRS is an
+        off-axis concern not actively modeled in the power calculations.
+        """
+        rho = air_density(altitude_m, temperature_offset_c)
+        T = self.mass_kg * G
+        A = self.disk_area_m2
+        v_i_hover = math.sqrt(T / (2.0 * rho * A))
+        return 0.5 * v_i_hover
+
 
 # --- High-level endurance & range -----------------------------------------
 
@@ -360,6 +466,7 @@ def hover_endurance_min(
     ac: Aircraft,
     altitude_m: float = 0.0,
     temperature_offset_c: float = 0.0,
+    altitude_AGL_m: float = 10000.0,
 ) -> float:
     """Predicted hover endurance in minutes."""
     P = hover_power_momentum_theory(
@@ -371,10 +478,13 @@ def hover_endurance_min(
         profile_power_W=ac.profile_power_W,
         altitude_m=altitude_m,
         temperature_offset_c=temperature_offset_c,
+        altitude_AGL_m=altitude_AGL_m,
+        cooling_power_W=ac.cooling_power_W,
     )
-    E = battery_usable_Wh(
+    E = battery_usable_Wh_with_sag(
         ac.battery_capacity_Ah, ac.battery_voltage_V,
         ac.usable_fraction, ac.discharge_efficiency,
+        ac.voltage_sag_at_full_load, P,
     )
     return (E / P) * 60.0
 
@@ -384,8 +494,13 @@ def forward_endurance_and_range(
     airspeed_mps: float,
     altitude_m: float = 0.0,
     temperature_offset_c: float = 0.0,
+    wind_headwind_mps: float = 0.0,
 ) -> tuple[float, float]:
-    """Predicted endurance (min) and range (km) at a given cruise speed."""
+    """Predicted endurance (min) and range (km) at a given cruise speed.
+
+    v5: wind_headwind_mps adjusts ground speed for range calculation.
+    Negative = tailwind = increases ground range.
+    """
     P = forward_flight_power(
         mass_kg=ac.mass_kg,
         airspeed_mps=airspeed_mps,
@@ -404,13 +519,19 @@ def forward_endurance_and_range(
         oswald_e=ac.oswald_e,
         CL_max=ac.CL_max,
         prop_efficiency=ac.prop_efficiency,
+        transition_width_mps=ac.transition_width_mps,
+        profile_K_mu=ac.profile_K_mu,
+        rotor_tip_speed_mps=ac.rotor_tip_speed_mps,
+        cooling_power_W=ac.cooling_power_W,
     )
-    E = battery_usable_Wh(
+    E = battery_usable_Wh_with_sag(
         ac.battery_capacity_Ah, ac.battery_voltage_V,
         ac.usable_fraction, ac.discharge_efficiency,
+        ac.voltage_sag_at_full_load, P,
     )
     t_min = (E / P) * 60.0
-    range_km = (airspeed_mps * (t_min / 60.0)) * 3.6
+    V_ground = airspeed_mps - wind_headwind_mps
+    range_km = (V_ground * (t_min / 60.0)) * 3.6
     return t_min, range_km
 
 
@@ -433,6 +554,7 @@ def power_curve(
                 profile_power_W=ac.profile_power_W,
                 altitude_m=altitude_m,
                 temperature_offset_c=temperature_offset_c,
+                cooling_power_W=ac.cooling_power_W,
             ))
         else:
             out.append(forward_flight_power(
@@ -453,6 +575,10 @@ def power_curve(
                 oswald_e=ac.oswald_e,
                 CL_max=ac.CL_max,
                 prop_efficiency=ac.prop_efficiency,
+                transition_width_mps=ac.transition_width_mps,
+                profile_K_mu=ac.profile_K_mu,
+                rotor_tip_speed_mps=ac.rotor_tip_speed_mps,
+                cooling_power_W=ac.cooling_power_W,
             ))
     return out
 
@@ -464,11 +590,11 @@ def best_cruise_speed(
     v_min: float = 1.0,
     v_max: float = 30.0,
     n_pts: int = 201,
+    wind_headwind_mps: float = 0.0,
 ) -> tuple[float, float, float]:
-    """Find the airspeed that maximizes range (min energy per km).
+    """Find the airspeed that maximizes ground range.
 
-    For wing-borne aircraft, pass a higher v_max (e.g. 100 m/s) to capture
-    the wing-borne cruise regime.
+    v5: wind_headwind_mps shifts the optimum via ground speed.
     """
     best_V = v_min
     best_range = -1.0
@@ -477,7 +603,8 @@ def best_cruise_speed(
     for i in range(n_pts):
         V = v_min + i * step
         t_min, rng_km = forward_endurance_and_range(
-            ac, V, altitude_m, temperature_offset_c
+            ac, V, altitude_m, temperature_offset_c,
+            wind_headwind_mps=wind_headwind_mps,
         )
         if rng_km > best_range:
             best_range = rng_km

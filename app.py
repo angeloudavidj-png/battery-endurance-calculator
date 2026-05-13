@@ -152,6 +152,22 @@ with st.sidebar.expander("Atmosphere"):
     temp_offset = st.slider("Temperature offset from ISA [C]",
                             -30, 50, 0, 1)
 
+with st.sidebar.expander("v5 physics (advanced)"):
+    st.caption(
+        "Runtime parameters for v5 physics extensions. These affect "
+        "predictions without changing the aircraft definition."
+    )
+    altitude_AGL_m = st.slider(
+        "Altitude AGL [m] (ground effect)", 0.0, 50.0, 10.0, 0.5,
+        help="Height above ground for Cheeseman-Bennett ground effect. "
+             "Only affects hover when AGL < 2 × rotor radius.",
+    )
+    wind_headwind_mps = st.slider(
+        "Wind headwind [m/s]", -15.0, 15.0, 0.0, 0.5,
+        help="Positive = headwind (reduces ground range). "
+             "Negative = tailwind (increases ground range).",
+    )
+
 # Build runtime aircraft from sidebar values
 ac = Aircraft(
     name=base.name if choice != "-- Custom --" else "Custom multirotor",
@@ -174,6 +190,12 @@ ac = Aircraft(
     CL_max=CL_max,
     prop_efficiency=prop_efficiency,
     notes=base.notes,
+    # v5 fields from preset (not editable via sidebar)
+    transition_width_mps=base.transition_width_mps,
+    profile_K_mu=base.profile_K_mu,
+    rotor_tip_speed_mps=base.rotor_tip_speed_mps,
+    voltage_sag_at_full_load=base.voltage_sag_at_full_load,
+    cooling_power_W=base.cooling_power_W,
 )
 
 
@@ -203,8 +225,11 @@ with tab_calc:
         ac.figure_of_merit, ac.drivetrain_efficiency,
         profile_power_W=ac.profile_power_W,
         altitude_m=altitude_m, temperature_offset_c=temp_offset,
+        altitude_AGL_m=altitude_AGL_m,
+        cooling_power_W=ac.cooling_power_W,
     )
-    t_hover = hover_endurance_min(ac, altitude_m, temp_offset)
+    t_hover = hover_endurance_min(ac, altitude_m, temp_offset,
+                                  altitude_AGL_m=altitude_AGL_m)
     E_usable = battery_usable_Wh(
         ac.battery_capacity_Ah, ac.battery_voltage_V,
         ac.usable_fraction, ac.discharge_efficiency,
@@ -213,6 +238,7 @@ with tab_calc:
     V_best, range_best, t_best = best_cruise_speed(
         ac, altitude_m, temp_offset,
         v_min=1.0, v_max=v_max_search, n_pts=221,
+        wind_headwind_mps=wind_headwind_mps,
     )
 
     # KPI row
@@ -263,6 +289,23 @@ with tab_calc:
 | Profile power at hover | **{ac.profile_power_W:.1f} W** |
             """,
         )
+        # v5 fields
+        v5_lines = []
+        if ac.transition_width_mps > 0:
+            v5_lines.append(f"| Transition width | {ac.transition_width_mps:.1f} m/s |")
+        if ac.profile_K_mu > 0:
+            v5_lines.append(f"| Profile K_μ | {ac.profile_K_mu:.2f} |")
+        if ac.cooling_power_W > 0:
+            v5_lines.append(f"| Cooling power | {ac.cooling_power_W:.0f} W |")
+        if ac.voltage_sag_at_full_load > 0:
+            v5_lines.append(f"| Voltage sag | {ac.voltage_sag_at_full_load:.2f} |")
+        if altitude_AGL_m < 10.0:
+            v5_lines.append(f"| Altitude AGL | {altitude_AGL_m:.1f} m |")
+        if wind_headwind_mps != 0:
+            v5_lines.append(f"| Wind headwind | {wind_headwind_mps:+.1f} m/s |")
+        if v5_lines:
+            st.markdown("**v5 physics active:**")
+            st.markdown("| Parameter | Value |\n|---|---|\n" + "\n".join(v5_lines))
 
     st.divider()
 
@@ -275,6 +318,7 @@ with tab_calc:
     else:
         t_min, rng_km = forward_endurance_and_range(
             ac, V_user, altitude_m, temp_offset,
+            wind_headwind_mps=wind_headwind_mps,
         )
         P_user = forward_flight_power(
             ac.mass_kg, V_user, ac.n_rotors, ac.rotor_diameter_m,

@@ -658,6 +658,97 @@ def make_evtol_comparison() -> str:
     return out
 
 
+# --- Chart 7 (v5): v4 vs v5 transition comparison -------------------------
+
+def make_v4_vs_v5_chart() -> str:
+    """v5 narrative chart: hard min() (v4) vs sigmoid blend (v5) on Joby,
+    plus a bar chart of v4 vs v5 range for all 4 eVTOLs."""
+    from aircraft_db import JOBY_S4, ARCHER_MIDNIGHT, BETA_ALIA_250, VERTICAL_VX4
+    from endurance import stall_speed, battery_usable_Wh
+
+    # Build v4 Joby (no transition)
+    ac_v5 = JOBY_S4
+    ac_v4 = replace(ac_v5, transition_width_mps=0.0, profile_K_mu=0.0,
+                    cooling_power_W=0.0, Cd0=0.0291)
+
+    speeds = np.linspace(0.1, 100.0, 300)
+    P_v4 = np.array(power_curve(ac_v4, speeds.tolist())) / 1000.0
+    P_v5 = np.array(power_curve(ac_v5, speeds.tolist())) / 1000.0
+
+    V_stall = stall_speed(ac_v5.mass_kg, ac_v5.wing_area_m2, ac_v5.CL_max)
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6.2))
+    fig.subplots_adjust(top=0.81, bottom=0.13, left=0.07, right=0.97, wspace=0.25)
+
+    # Left: power curves
+    ax1.axvspan(V_stall - 10, V_stall + 10, alpha=0.08, color=AMBER,
+                label=f"Transition zone (V_stall \u2248 {V_stall:.0f} m/s)")
+    ax1.plot(speeds, P_v4, color=RUST, linewidth=2.2, linestyle="--",
+             label="v4: hard min() blend")
+    ax1.plot(speeds, P_v5, color=NAVY, linewidth=2.4,
+             label="v5: sigmoid blend + \u03bc-scaling + cooling")
+    ax1.set_xlabel("Airspeed  (m/s)")
+    ax1.set_ylabel("Electrical power  (kW)")
+    ax1.set_xlim(20, 80)
+    ax1.set_ylim(0, max(P_v4.max(), P_v5.max()) * 0.5)
+    ax1.legend(loc="upper left", fontsize=9)
+    ax1.set_title("Joby S4 power curve: v4 vs v5", loc="left",
+                  fontsize=11, fontweight="bold", color=INK)
+
+    # Right: bar chart of ranges
+    aircraft = [
+        ("Joby S4", JOBY_S4, 74.0, 161.0, 0.0291),
+        ("Archer", ARCHER_MIDNIGHT, 67.0, 161.0, 0.0238),
+        ("Beta", BETA_ALIA_250, 62.0, 463.0, 0.0287),
+        ("VX4", VERTICAL_VX4, 67.0, 161.0, 0.0309),
+    ]
+    labels, r_v4, r_v5 = [], [], []
+    for label, ac, V, target, old_cd0 in aircraft:
+        labels.append(label)
+        ac_old = replace(ac, transition_width_mps=0.0, profile_K_mu=0.0,
+                         cooling_power_W=0.0, Cd0=old_cd0)
+        from endurance import forward_endurance_and_range
+        _, r4 = forward_endurance_and_range(ac_old, V)
+        _, r5 = forward_endurance_and_range(ac, V)
+        r_v4.append(r4)
+        r_v5.append(r5)
+
+    x = np.arange(len(labels))
+    w = 0.35
+    ax2.bar(x - w/2, r_v4, w, color=RUST, alpha=0.7, label="v4 range")
+    ax2.bar(x + w/2, r_v5, w, color=NAVY, label="v5 range")
+    for i, (r4, r5) in enumerate(zip(r_v4, r_v5)):
+        ax2.text(i - w/2, r4 + 5, f"{r4:.0f}", ha="center", fontsize=9, color=INK)
+        ax2.text(i + w/2, r5 + 5, f"{r5:.0f}", ha="center", fontsize=9,
+                 color=INK, fontweight="bold")
+    ax2.set_xticks(x)
+    ax2.set_xticklabels(labels, fontsize=10, fontweight="bold")
+    ax2.set_ylabel("Range  (km)")
+    ax2.legend(loc="upper left", fontsize=9, frameon=False)
+    ax2.set_title("v4 vs v5 cruise range (re-tuned Cd\u2080)", loc="left",
+                  fontsize=11, fontweight="bold", color=INK)
+
+    fig.text(0.07, 0.94,
+             "v5 upgrade: smooth transition + \u03bc-scaling + cooling power",
+             fontsize=14, color=INK_SOFT)
+    fig.text(0.07, 0.895,
+             "Seven opt-in physics terms; Cd\u2080 re-tuned so range predictions "
+             "stay within \u00b10.1% of published",
+             fontsize=11, color=INK, fontweight="bold")
+    fig.text(0.07, 0.025,
+             "v5: sigmoid mode transition, profile-power \u03bc-scaling, cooling "
+             "parasitic load \u2014 all backward-compatible with v4 defaults",
+             color=INK_SOFT, fontsize=9, style="italic")
+    fig.text(0.97, 0.025,
+             "D. Angelou  \u00b7  UMich ME '27",
+             ha="right", color=INK_SOFT, fontsize=9)
+
+    out = os.path.join(DOCS, "v4_vs_v5_transition.png")
+    fig.savefig(out)
+    plt.close(fig)
+    return out
+
+
 # --- Driver ---------------------------------------------------------------
 
 if __name__ == "__main__":
@@ -668,6 +759,7 @@ if __name__ == "__main__":
         make_forward_flight_v1_v2(),
         make_joby_v2_v3(),
         make_evtol_comparison(),
+        make_v4_vs_v5_chart(),
     ]
     print("Generated:")
     for p in paths:

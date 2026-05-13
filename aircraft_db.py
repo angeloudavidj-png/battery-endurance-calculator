@@ -124,7 +124,7 @@ JOBY_S4 = Aircraft(
     # v3 wing parameters
     wing_area_m2=20.2,                  # estimated from 39 ft span / AR ~7
     wing_span_m=11.9,                   # 39 ft (AOPA spec)
-    Cd0=0.0291,                         # tuned to 161 km range @ 74 m/s
+    Cd0=0.0287,                         # v5 re-tuned (v4: 0.0291) for 161 km @ 74 m/s
     oswald_e=0.80,                      # clean wing assumption
     CL_max=1.3,                         # clean wing, no flaps
     prop_efficiency=0.85,               # cruise-pitched propeller
@@ -139,6 +139,11 @@ JOBY_S4 = Aircraft(
            "cruise as a representative economy-cruise speed. "
            "v3 model: wing-borne cruise above V_stall = 36 m/s; rotor-borne "
            "below. Disk loading 539 N/m^2 is ~ 10x typical multirotor."),
+    # v5 physics
+    transition_width_mps=5.0,
+    profile_K_mu=4.65,
+    rotor_tip_speed_mps=200.0,
+    cooling_power_W=2500.0,
 )
 
 
@@ -158,7 +163,7 @@ ARCHER_MIDNIGHT = Aircraft(
     discharge_efficiency=0.96,
     wing_area_m2=18.0,                  # estimated from 40 ft span at AR ~8
     wing_span_m=12.2,                   # 40 ft (AOPA Maker; Midnight may be larger)
-    Cd0=0.0238,                         # back-solved for 161 km @ 67 m/s
+    Cd0=0.0223,                         # v5 re-tuned (v4: 0.0238) for 161 km @ 67 m/s
     oswald_e=0.80,
     CL_max=1.3,
     prop_efficiency=0.85,
@@ -169,6 +174,11 @@ ARCHER_MIDNIGHT = Aircraft(
            "67 m/s (150 mph) cruise; the model's Cd0 lumps in parasite drag "
            "from feathered lift rotors. Wingspan 40 ft per Maker; production "
            "Midnight may be slightly larger (~48 ft per some sources)."),
+    # v5 physics
+    transition_width_mps=5.0,
+    profile_K_mu=4.65,
+    rotor_tip_speed_mps=200.0,
+    cooling_power_W=2500.0,
 )
 
 
@@ -188,7 +198,7 @@ BETA_ALIA_250 = Aircraft(
     discharge_efficiency=0.96,
     wing_area_m2=19.4,                  # 15.24 m span at AR ~12 (Arctic-tern-inspired)
     wing_span_m=15.24,                  # 50 ft (Beta spec, airport-technology)
-    Cd0=0.0287,                         # back-solved for 463 km @ 62 m/s
+    Cd0=0.0270,                         # v5 re-tuned (v4: 0.0287) for 463 km @ 62 m/s
     oswald_e=0.85,                      # high-AR wing, well-shaped
     CL_max=1.4,                         # high-AR wing tolerates higher CL
     prop_efficiency=0.88,               # dedicated rear pusher prop
@@ -201,6 +211,11 @@ BETA_ALIA_250 = Aircraft(
            "capacity 350 kWh estimated; Beta uses 950 V DC pack with "
            "350 kW rapid charge in <60 min. Cd0 back-solved at 62 m/s "
            "(138 mph) standard cruise; max cruise is 75 m/s (270 km/h)."),
+    # v5 physics
+    transition_width_mps=5.0,
+    profile_K_mu=4.65,
+    rotor_tip_speed_mps=200.0,
+    cooling_power_W=2500.0,
 )
 
 
@@ -220,7 +235,7 @@ VERTICAL_VX4 = Aircraft(
     discharge_efficiency=0.96,
     wing_area_m2=17.0,                  # estimated from ~12 m span at AR ~8.5
     wing_span_m=12.0,                   # ESTIMATED; not officially published
-    Cd0=0.0309,                         # back-solved for 161 km @ 67 m/s
+    Cd0=0.0298,                         # v5 re-tuned (v4: 0.0309) for 161 km @ 67 m/s
     oswald_e=0.80,
     CL_max=1.3,
     prop_efficiency=0.85,
@@ -234,6 +249,11 @@ VERTICAL_VX4 = Aircraft(
            "has 20% power-to-weight increase over earlier version. Range "
            "100 mi (161 km) at 150 mph (67 m/s) certification target. "
            "Rotor diameter 2.2 m and wing geometry are estimates."),
+    # v5 physics
+    transition_width_mps=5.0,
+    profile_K_mu=4.65,
+    rotor_tip_speed_mps=200.0,
+    cooling_power_W=2500.0,
 )
 
 

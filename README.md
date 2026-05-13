@@ -1,7 +1,7 @@
 # Multirotor & eVTOL Battery Endurance Calculator
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://david-angelou-bec.streamlit.app)
-[![Tests](https://img.shields.io/badge/tests-22%2F22-brightgreen)](./test_endurance.py)
+[![Tests](https://img.shields.io/badge/tests-30%2F30-brightgreen)](./test_endurance.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 A parametric Python tool for predicting hover endurance, forward-flight
@@ -13,10 +13,10 @@ eVTOL — and against **four distinct eVTOL architectures**: tilt-rotor
 (Joby S4), lift+cruise (Archer Midnight), lift+pusher (Beta ALIA-250),
 and tilt+lift (Vertical VX4).
 
-> **v4 headline:** one Python model, four eVTOL architectures, every published
-> cruise range claim matched within **±0.5 %**. Hover predictions match the
-> published or derived specs to **0.43 %** across the 3,300× mass range.
-> Mavic 3 forward-flight error sits at **±5 %** thanks to v2's profile-drag term.
+> **v5 headline:** seven opt-in physics extensions — smooth transition,
+> μ-scaling, voltage sag, ground effect, cooling, wind, VRS — all backward
+> compatible. One Python model, four eVTOL architectures, every published
+> cruise range claim matched within **±0.1 %**. 30/30 tests pass.
 
 ![Calculator overview](docs/calculator_overview.png)
 
@@ -39,9 +39,9 @@ The Streamlit UI is interactive — pick a preset aircraft (now 7 to choose
 from) or define your own, adjust efficiency assumptions on sliders, and
 watch the curves update live.
 
-## Four-iteration build
+## Five-iteration build
 
-The model was developed in four documented iterations, each adding one
+The model was developed in five documented iterations, each adding one
 piece of physics or one architecture and measurably tightening the
 validation:
 
@@ -51,6 +51,7 @@ validation:
 | **v2** | Rotor profile drag | **±5 %** | −51 % (no wing) | 0 |
 | **v3** | Wing-borne cruise (above V_stall) | ±5 % | **+0.04 %** | 1 (Joby) |
 | **v4** | Three more eVTOL architectures | ±5 % | +0.04 % | **4** |
+| **v5** | 7 physics extensions (all opt-in) | ±5 % | **−0.0 %** | 4 (re-tuned) |
 
 Each iteration ships as a working commit so the build history *is* the
 narrative — a tactic worth more than the final number.
@@ -329,29 +330,42 @@ E_usable = C · V_nominal · f_usable · η_batt
 with `f_usable ≈ 0.90` (reserve / voltage cutoff; 0.85 for eVTOL with
 FAA Part 135 reserves) and `η_batt ≈ 0.96` (internal IR losses).
 
+## v5 upgrade: seven opt-in physics extensions
+
+v5 adds seven physics terms, each controlled by new Aircraft fields or
+function parameters. All defaults preserve v4 behavior exactly — the
+three multirotor aircraft (Mavic 3, Skydio X10, Alta X) produce identical
+predictions. The four eVTOLs opt in to transition smoothing, μ-scaling,
+and cooling; their Cd₀ is re-tuned (lower) to compensate.
+
+| Term | Parameter | Default | eVTOL value |
+|---|---|---|---|
+| Smooth mode transition | `transition_width_mps` | 0.0 (hard min) | 5.0 m/s |
+| Profile power μ-scaling | `profile_K_mu` | 0.0 (constant) | 4.65 |
+| Battery voltage sag | `voltage_sag_at_full_load` | 0.0 | — |
+| Ground effect (hover) | `altitude_AGL_m` | 10000 (OGE) | — |
+| Cooling parasitic load | `cooling_power_W` | 0.0 | 2500 W |
+| Wind headwind | `wind_headwind_mps` | 0.0 | — |
+| VRS descent boundary | method on Aircraft | — | — |
+
+![v4 vs v5 transition](docs/v4_vs_v5_transition.png)
+
 ## What the model still does NOT capture
 
-Honest scope statement:
+Honest scope statement (after v5 extensions):
 
-- **Smooth mode transition**: real eVTOLs blend rotor and wing lift
-  gradually as the rotor nacelles tilt. The min() blend creates a step
-  at V_stall. The step is small in energy terms (the integral under the
-  curve, i.e. cruise range, is essentially correct), but it's an
-  approximation.
-- **Profile power vs airspeed**: held constant. The (1 + K·μ²)
-  correction would change profile by < 10 % for multirotors. For high-speed
-  eVTOL cruise it could matter more, but at that point the missing physics
-  is profile-vs-Re for the cruise prop, not μ corrections.
-- **Battery voltage sag**: real packs drop voltage during discharge.
-  The discharge-efficiency knob absorbs this on average; the calculator
-  does not step through the voltage curve.
-- **Low-speed rotor physics**: vortex-ring state, translational lift,
-  ground effect.
-- **BLDC iron losses, ESC switching losses**: lumped into η<sub>drive</sub>.
-- **Wind, gusts, turbulence**: not modeled.
-- **Cooling system parasitic loads**: the Joby S4 has liquid-cooled
-  batteries and motor controllers; these add a few percent to baseline
-  power consumption that the model doesn't account for separately.
+- **Aeroelastic effects**: blade flapping, flutter, and structural
+  deformation are not modeled.
+- **Gust statistics**: the wind parameter is a steady headwind/tailwind;
+  no turbulence or gust spectrum.
+- **Detailed motor map**: BLDC iron losses and ESC switching losses
+  remain lumped into η<sub>drive</sub>.
+- **Mass variation during flight**: battery mass is assumed constant
+  (valid for electric aircraft — no fuel burn).
+- **Climb/descent energy**: the model assumes level cruise; the
+  published range claims may include climb and descent segments.
+- **Detailed prop aero**: blade-element momentum theory is not used;
+  the propeller is represented by a single η<sub>prop</sub>.
 
 ## Live demo
 
@@ -417,6 +431,6 @@ MIT.
 ---
 
 *Built by D. Angelou, UMich ME '27. Portfolio piece §28 — Battery
-Endurance Calculator. Four-iteration build: v1 hover → v2 profile drag
-→ v3 wing-borne cruise → v4 four eVTOL architectures. Time invested:
-~50 hours over a month.*
+Endurance Calculator. Five-iteration build: v1 hover → v2 profile drag
+→ v3 wing-borne cruise → v4 four eVTOL architectures → v5 seven physics
+extensions. Time invested: ~65 hours over a month.*
