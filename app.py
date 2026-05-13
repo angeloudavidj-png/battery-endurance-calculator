@@ -191,11 +191,11 @@ ac = Aircraft(
     prop_efficiency=prop_efficiency,
     notes=base.notes,
     # v5 fields from preset (not editable via sidebar)
-    transition_width_mps=base.transition_width_mps,
-    profile_K_mu=base.profile_K_mu,
-    rotor_tip_speed_mps=base.rotor_tip_speed_mps,
-    voltage_sag_at_full_load=base.voltage_sag_at_full_load,
-    cooling_power_W=base.cooling_power_W,
+    transition_width_mps=getattr(base, 'transition_width_mps', 0.0),
+    profile_K_mu=getattr(base, 'profile_K_mu', 0.0),
+    rotor_tip_speed_mps=getattr(base, 'rotor_tip_speed_mps', 200.0),
+    voltage_sag_at_full_load=getattr(base, 'voltage_sag_at_full_load', 0.0),
+    cooling_power_W=getattr(base, 'cooling_power_W', 0.0),
 )
 
 
