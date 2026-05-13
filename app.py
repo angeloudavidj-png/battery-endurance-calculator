@@ -169,7 +169,7 @@ with st.sidebar.expander("v5 physics (advanced)"):
     )
 
 # Build runtime aircraft from sidebar values
-ac = Aircraft(
+_ac_kwargs = dict(
     name=base.name if choice != "-- Custom --" else "Custom multirotor",
     mass_kg=mass_kg,
     n_rotors=int(n_rotors),
@@ -190,13 +190,17 @@ ac = Aircraft(
     CL_max=CL_max,
     prop_efficiency=prop_efficiency,
     notes=base.notes,
-    # v5 fields from preset (not editable via sidebar)
-    transition_width_mps=getattr(base, 'transition_width_mps', 0.0),
-    profile_K_mu=getattr(base, 'profile_K_mu', 0.0),
-    rotor_tip_speed_mps=getattr(base, 'rotor_tip_speed_mps', 200.0),
-    voltage_sag_at_full_load=getattr(base, 'voltage_sag_at_full_load', 0.0),
-    cooling_power_W=getattr(base, 'cooling_power_W', 0.0),
 )
+# v5 fields — only pass if Aircraft supports them (handles Streamlit cache)
+if hasattr(Aircraft, '__dataclass_fields__') and 'transition_width_mps' in Aircraft.__dataclass_fields__:
+    _ac_kwargs.update(
+        transition_width_mps=getattr(base, 'transition_width_mps', 0.0),
+        profile_K_mu=getattr(base, 'profile_K_mu', 0.0),
+        rotor_tip_speed_mps=getattr(base, 'rotor_tip_speed_mps', 200.0),
+        voltage_sag_at_full_load=getattr(base, 'voltage_sag_at_full_load', 0.0),
+        cooling_power_W=getattr(base, 'cooling_power_W', 0.0),
+    )
+ac = Aircraft(**_ac_kwargs)
 
 
 # ----------------------------------------------------------------------
@@ -220,26 +224,42 @@ tab_calc, tab_curves, tab_valid, tab_about = st.tabs(
 # ----------------------------------------------------------------------
 with tab_calc:
     rho = air_density(altitude_m, temp_offset)
-    P_hover = hover_power_momentum_theory(
-        ac.mass_kg, ac.n_rotors, ac.rotor_diameter_m,
-        ac.figure_of_merit, ac.drivetrain_efficiency,
-        profile_power_W=ac.profile_power_W,
-        altitude_m=altitude_m, temperature_offset_c=temp_offset,
-        altitude_AGL_m=altitude_AGL_m,
-        cooling_power_W=ac.cooling_power_W,
-    )
-    t_hover = hover_endurance_min(ac, altitude_m, temp_offset,
-                                  altitude_AGL_m=altitude_AGL_m)
+    _v5_ok = hasattr(Aircraft, '__dataclass_fields__') and 'cooling_power_W' in Aircraft.__dataclass_fields__
+    if _v5_ok:
+        P_hover = hover_power_momentum_theory(
+            ac.mass_kg, ac.n_rotors, ac.rotor_diameter_m,
+            ac.figure_of_merit, ac.drivetrain_efficiency,
+            profile_power_W=ac.profile_power_W,
+            altitude_m=altitude_m, temperature_offset_c=temp_offset,
+            altitude_AGL_m=altitude_AGL_m,
+            cooling_power_W=getattr(ac, 'cooling_power_W', 0.0),
+        )
+        t_hover = hover_endurance_min(ac, altitude_m, temp_offset,
+                                      altitude_AGL_m=altitude_AGL_m)
+    else:
+        P_hover = hover_power_momentum_theory(
+            ac.mass_kg, ac.n_rotors, ac.rotor_diameter_m,
+            ac.figure_of_merit, ac.drivetrain_efficiency,
+            profile_power_W=ac.profile_power_W,
+            altitude_m=altitude_m, temperature_offset_c=temp_offset,
+        )
+        t_hover = hover_endurance_min(ac, altitude_m, temp_offset)
     E_usable = battery_usable_Wh(
         ac.battery_capacity_Ah, ac.battery_voltage_V,
         ac.usable_fraction, ac.discharge_efficiency,
     )
     v_max_search = 110.0 if ac.has_wing else 30.0
-    V_best, range_best, t_best = best_cruise_speed(
-        ac, altitude_m, temp_offset,
-        v_min=1.0, v_max=v_max_search, n_pts=221,
-        wind_headwind_mps=wind_headwind_mps,
-    )
+    if _v5_ok:
+        V_best, range_best, t_best = best_cruise_speed(
+            ac, altitude_m, temp_offset,
+            v_min=1.0, v_max=v_max_search, n_pts=221,
+            wind_headwind_mps=wind_headwind_mps,
+        )
+    else:
+        V_best, range_best, t_best = best_cruise_speed(
+            ac, altitude_m, temp_offset,
+            v_min=1.0, v_max=v_max_search, n_pts=221,
+        )
 
     # KPI row
     c1, c2, c3, c4 = st.columns(4)
@@ -290,22 +310,23 @@ with tab_calc:
             """,
         )
         # v5 fields
-        v5_lines = []
-        if ac.transition_width_mps > 0:
-            v5_lines.append(f"| Transition width | {ac.transition_width_mps:.1f} m/s |")
-        if ac.profile_K_mu > 0:
-            v5_lines.append(f"| Profile K_μ | {ac.profile_K_mu:.2f} |")
-        if ac.cooling_power_W > 0:
-            v5_lines.append(f"| Cooling power | {ac.cooling_power_W:.0f} W |")
-        if ac.voltage_sag_at_full_load > 0:
-            v5_lines.append(f"| Voltage sag | {ac.voltage_sag_at_full_load:.2f} |")
-        if altitude_AGL_m < 10.0:
-            v5_lines.append(f"| Altitude AGL | {altitude_AGL_m:.1f} m |")
-        if wind_headwind_mps != 0:
-            v5_lines.append(f"| Wind headwind | {wind_headwind_mps:+.1f} m/s |")
-        if v5_lines:
-            st.markdown("**v5 physics active:**")
-            st.markdown("| Parameter | Value |\n|---|---|\n" + "\n".join(v5_lines))
+        if _v5_ok:
+            v5_lines = []
+            if getattr(ac, 'transition_width_mps', 0) > 0:
+                v5_lines.append(f"| Transition width | {ac.transition_width_mps:.1f} m/s |")
+            if getattr(ac, 'profile_K_mu', 0) > 0:
+                v5_lines.append(f"| Profile K_μ | {ac.profile_K_mu:.2f} |")
+            if getattr(ac, 'cooling_power_W', 0) > 0:
+                v5_lines.append(f"| Cooling power | {ac.cooling_power_W:.0f} W |")
+            if getattr(ac, 'voltage_sag_at_full_load', 0) > 0:
+                v5_lines.append(f"| Voltage sag | {ac.voltage_sag_at_full_load:.2f} |")
+            if altitude_AGL_m < 10.0:
+                v5_lines.append(f"| Altitude AGL | {altitude_AGL_m:.1f} m |")
+            if wind_headwind_mps != 0:
+                v5_lines.append(f"| Wind headwind | {wind_headwind_mps:+.1f} m/s |")
+            if v5_lines:
+                st.markdown("**v5 physics active:**")
+                st.markdown("| Parameter | Value |\n|---|---|\n" + "\n".join(v5_lines))
 
     st.divider()
 
@@ -316,10 +337,15 @@ with tab_calc:
         t_min, rng_km = t_hover, 0.0
         P_user = P_hover
     else:
-        t_min, rng_km = forward_endurance_and_range(
-            ac, V_user, altitude_m, temp_offset,
-            wind_headwind_mps=wind_headwind_mps,
-        )
+        if _v5_ok:
+            t_min, rng_km = forward_endurance_and_range(
+                ac, V_user, altitude_m, temp_offset,
+                wind_headwind_mps=wind_headwind_mps,
+            )
+        else:
+            t_min, rng_km = forward_endurance_and_range(
+                ac, V_user, altitude_m, temp_offset,
+            )
         P_user = forward_flight_power(
             ac.mass_kg, V_user, ac.n_rotors, ac.rotor_diameter_m,
             ac.Cd_body, ac.frontal_area_m2,
