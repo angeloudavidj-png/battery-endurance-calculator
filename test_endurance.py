@@ -402,7 +402,38 @@ def test_v4_aircraft_at_defaults_unchanged():
     assert abs(rng - 28.58) < 0.1, f"Mavic 3 range changed: {rng:.2f} vs 28.58"
 
 
-# --- Standalone runner ---------------------------------------------------
+# --- Design-tab support tests -------------------------------------------
+
+def test_checks_module_returns_list():
+    """endurance_checks.check_aircraft returns a list of dicts."""
+    from endurance_checks import check_aircraft
+    from aircraft_db import DJI_MAVIC_3
+    result = check_aircraft(DJI_MAVIC_3)
+    assert isinstance(result, list), f"Expected list, got {type(result)}"
+    for item in result:
+        assert isinstance(item, dict), f"Expected dict, got {type(item)}"
+        assert "severity" in item and "message" in item
+
+
+def test_warning_fires_on_unphysical_FoM():
+    """Aircraft with FoM=0.95 should trigger at least one 'warn'."""
+    from endurance_checks import check_aircraft
+    ac = Aircraft(name="Bad FoM", mass_kg=2.0, n_rotors=4,
+                  rotor_diameter_m=0.30, battery_capacity_Ah=5.0,
+                  battery_voltage_V=14.8, figure_of_merit=0.95)
+    result = check_aircraft(ac)
+    warns = [r for r in result if r["severity"] == "warn"]
+    assert len(warns) >= 1, f"Expected at least 1 warning, got {len(warns)}"
+
+
+def test_aircraft_dataclass_round_trip():
+    """asdict(ac) -> Aircraft(**d) produces an equal Aircraft."""
+    from dataclasses import asdict
+    from aircraft_db import JOBY_S4
+    d = asdict(JOBY_S4)
+    rebuilt = Aircraft(**d)
+    for f in d:
+        assert getattr(rebuilt, f) == getattr(JOBY_S4, f), f"Field {f} mismatch"
 
 if __name__ == "__main__":
     tests = [
@@ -439,6 +470,10 @@ if __name__ == "__main__":
         test_wind_headwind_reduces_ground_range,
         test_vrs_boundary_is_physical,
         test_v4_aircraft_at_defaults_unchanged,
+        # design-tab
+        test_checks_module_returns_list,
+        test_warning_fires_on_unphysical_FoM,
+        test_aircraft_dataclass_round_trip,
     ]
     failed = 0
     for t in tests:
@@ -450,4 +485,3 @@ if __name__ == "__main__":
             print(f"  FAIL  {t.__name__}: {e}")
     print()
     print(f"{len(tests) - failed}/{len(tests)} tests passed")
-

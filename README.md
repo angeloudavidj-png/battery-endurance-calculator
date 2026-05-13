@@ -1,7 +1,7 @@
 # Multirotor & eVTOL Battery Endurance Calculator
 
 [![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://david-angelou-bec.streamlit.app)
-[![Tests](https://img.shields.io/badge/tests-30%2F30-brightgreen)](./test_endurance.py)
+[![Tests](https://img.shields.io/badge/tests-33%2F33-brightgreen)](./test_endurance.py)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
 A parametric Python tool for predicting hover endurance, forward-flight
@@ -39,6 +39,24 @@ The Streamlit UI is interactive — pick a preset aircraft (now 7 to choose
 from) or define your own, adjust efficiency assumptions on sliders, and
 watch the curves update live.
 
+## Design your own aircraft
+
+The **🛠️ Design Your Aircraft** tab lets innovators, students, and
+engineers input their own drone or eVTOL specs and get power, endurance,
+and range predictions backed by the same physics that validates against
+the 7 reference aircraft. Start from one of 7 templates (consumer
+multirotor, heavy-lift, or 4 eVTOL architectures) or build from scratch.
+
+The design tab includes sanity checks that warn about unphysical
+parameters, a sensitivity analysis showing which parameters matter most,
+power curve visualization, automatic comparison against the reference
+fleet, and export to Python, JSON, or Markdown. Save your designs and
+compare up to 3 aircraft side-by-side in the **⚖️ Compare** tab.
+
+<!-- TODO: add screenshots after deploy -->
+<!-- ![Design tab screenshot](docs/screenshot_design_tab.png) -->
+<!-- ![Compare tab screenshot](docs/screenshot_compare_tab.png) -->
+
 ## Five-iteration build
 
 The model was developed in five documented iterations, each adding one
@@ -52,6 +70,7 @@ validation:
 | **v3** | Wing-borne cruise (above V_stall) | ±5 % | **+0.04 %** | 1 (Joby) |
 | **v4** | Three more eVTOL architectures | ±5 % | +0.04 % | **4** |
 | **v5** | 7 physics extensions (all opt-in) | ±5 % | **−0.0 %** | 4 (re-tuned) |
+| **v6** | Design Your Aircraft mode + Compare tab | ±5 % | −0.0 % | 4 |
 
 Each iteration ships as a working commit so the build history *is* the
 narrative — a tactic worth more than the final number.
@@ -431,6 +450,6 @@ MIT.
 ---
 
 *Built by D. Angelou, UMich ME '27. Portfolio piece §28 — Battery
-Endurance Calculator. Five-iteration build: v1 hover → v2 profile drag
+Endurance Calculator. Six-iteration build: v1 hover → v2 profile drag
 → v3 wing-borne cruise → v4 four eVTOL architectures → v5 seven physics
-extensions. Time invested: ~65 hours over a month.*
+extensions → v6 Design Your Aircraft mode. Time invested: ~75 hours.*
