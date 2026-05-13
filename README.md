@@ -1,5 +1,9 @@
 # Multirotor & eVTOL Battery Endurance Calculator
 
+[![Open in Streamlit](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://david-angelou-bec.streamlit.app)
+[![Tests](https://img.shields.io/badge/tests-22%2F22-brightgreen)](./test_endurance.py)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
+
 A parametric Python tool for predicting hover endurance, forward-flight
 range, and the full power-required curve of rotorcraft. Built on rotor
 momentum theory + a wing-borne cruise model for fixed-wing eVTOLs.
